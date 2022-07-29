@@ -12,11 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	// LogBodySizeLimit is the maximum size of body to log.
-	LogBodySizeLimit = 500000 // 500 kB
-)
-
 // Logger is the logrus logger handler
 func Logger(logger logrus.FieldLogger, notLogged ...string) gin.HandlerFunc {
 	hostname, err := os.Hostname()
@@ -48,19 +43,19 @@ func Logger(logger logrus.FieldLogger, notLogged ...string) gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		clientUserAgent := c.Request.UserAgent()
 		referer := c.Request.Referer()
-		bodySize := c.Writer.Size()
-		if bodySize < 0 {
-			bodySize = 0
+		respBodySize := c.Writer.Size()
+		if respBodySize < 0 {
+			respBodySize = 0
 		}
 
-		body := ""
-		if strings.Contains(c.Request.Header.Get("Content-Type"), "application/json") && bodySize <= LogBodySizeLimit {
+		reqBody := ""
+		if strings.Contains(c.Request.Header.Get("Content-Type"), "application/json") {
 			var buf bytes.Buffer
 
 			tee := io.TeeReader(c.Request.Body, &buf)
 			bodyBytes, _ := ioutil.ReadAll(tee)
 			c.Request.Body = ioutil.NopCloser(&buf)
-			body = string(bodyBytes)
+			reqBody = string(bodyBytes)
 		}
 
 		if _, ok := skip[path]; ok {
@@ -68,18 +63,18 @@ func Logger(logger logrus.FieldLogger, notLogged ...string) gin.HandlerFunc {
 		}
 
 		entry := logger.WithFields(logrus.Fields{
-			"hostname":        hostname,
-			"statusCode":      statusCode,
-			"latency":         latency,
-			"clientIP":        clientIP,
-			"method":          c.Request.Method,
-			"path":            path,
-			"rawQuery":        rawQuery,
-			"referer":         referer,
-			"requestBodySize": bodySize,
-			"requestBody":     body,
-			"userAgent":       clientUserAgent,
-			"error":           c.Errors.ByType(gin.ErrorTypePrivate).String(),
+			"hostname":         hostname,
+			"statusCode":       statusCode,
+			"latency":          latency,
+			"clientIP":         clientIP,
+			"method":           c.Request.Method,
+			"path":             path,
+			"rawQuery":         rawQuery,
+			"referer":          referer,
+			"requestBody":      reqBody,
+			"responseBodySize": respBodySize,
+			"userAgent":        clientUserAgent,
+			"error":            c.Errors.ByType(gin.ErrorTypePrivate).String(),
 		})
 
 		entry.Info()
