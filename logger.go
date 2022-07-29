@@ -1,15 +1,21 @@
 package ginlogrus
 
 import (
+	"bytes"
+	"io"
+	"io/ioutil"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
-// TimeFormat represents time format layout.
-var TimeFormat = time.RFC3339
+var (
+	// LogBodySizeLimit is the maximum size of body to log.
+	LogBodySizeLimit = 500000 // 500 kB
+)
 
 // Logger is the logrus logger handler
 func Logger(logger logrus.FieldLogger, notLogged ...string) gin.HandlerFunc {
@@ -42,9 +48,19 @@ func Logger(logger logrus.FieldLogger, notLogged ...string) gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		clientUserAgent := c.Request.UserAgent()
 		referer := c.Request.Referer()
-		dataLength := c.Writer.Size()
-		if dataLength < 0 {
-			dataLength = 0
+		bodySize := c.Writer.Size()
+		if bodySize < 0 {
+			bodySize = 0
+		}
+
+		body := ""
+		if strings.Contains(c.Request.Header.Get("Content-Type"), "application/json") && bodySize <= LogBodySizeLimit {
+			var buf bytes.Buffer
+
+			tee := io.TeeReader(c.Request.Body, &buf)
+			bodyBytes, _ := ioutil.ReadAll(tee)
+			c.Request.Body = ioutil.NopCloser(&buf)
+			body = string(bodyBytes)
 		}
 
 		if _, ok := skip[path]; ok {
@@ -52,18 +68,18 @@ func Logger(logger logrus.FieldLogger, notLogged ...string) gin.HandlerFunc {
 		}
 
 		entry := logger.WithFields(logrus.Fields{
-			"hostname":   hostname,
-			"statusCode": statusCode,
-			"latency":    latency,
-			"clientIP":   clientIP,
-			"method":     c.Request.Method,
-			"path":       path,
-			"rawQuery":   rawQuery,
-			"referer":    referer,
-			"dataLength": dataLength,
-			"userAgent":  clientUserAgent,
-			"time":       start.Format(TimeFormat),
-			"error":      c.Errors.ByType(gin.ErrorTypePrivate).String(),
+			"hostname":        hostname,
+			"statusCode":      statusCode,
+			"latency":         latency,
+			"clientIP":        clientIP,
+			"method":          c.Request.Method,
+			"path":            path,
+			"rawQuery":        rawQuery,
+			"referer":         referer,
+			"requestBodySize": bodySize,
+			"requestBody":     body,
+			"userAgent":       clientUserAgent,
+			"error":           c.Errors.ByType(gin.ErrorTypePrivate).String(),
 		})
 
 		entry.Info()
